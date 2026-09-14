@@ -33,8 +33,8 @@ export default function ProcessingSettingsPanel({ settings, onChange, videoInfo 
   return (
     <div className="space-y-6">
       {/* Output Aspect Ratio - Primary Control */}
-      <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-1">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-2">
           Output Aspect Ratio
         </h3>
         <p className="text-xs text-gray-500 mb-4">
@@ -130,8 +130,8 @@ export default function ProcessingSettingsPanel({ settings, onChange, videoInfo 
 
       {/* Conversion Mode (only when aspect ratio is not original) */}
       {settings.outputAspectRatio !== 'original' && (
-        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-1">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-2">
             Resize / Fit Mode
           </h3>
           <p className="text-xs text-gray-500 mb-4">
@@ -237,8 +237,8 @@ export default function ProcessingSettingsPanel({ settings, onChange, videoInfo 
       )}
 
       {/* Output Resolution */}
-      <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-1">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-2">
           Output Resolution
         </h3>
         <p className="text-xs text-gray-500 mb-4">
@@ -279,7 +279,7 @@ export default function ProcessingSettingsPanel({ settings, onChange, videoInfo 
       {/* Quality + Frame Rate + Audio in a row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Quality */}
-        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+        <div>
           <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">
             Quality
           </h3>
@@ -312,7 +312,7 @@ export default function ProcessingSettingsPanel({ settings, onChange, videoInfo 
         </div>
 
         {/* Frame Rate */}
-        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+        <div>
           <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">
             Frame Rate
           </h3>
@@ -346,7 +346,7 @@ export default function ProcessingSettingsPanel({ settings, onChange, videoInfo 
         </div>
 
         {/* Audio */}
-        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-5">
+        <div>
           <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">
             Audio
           </h3>

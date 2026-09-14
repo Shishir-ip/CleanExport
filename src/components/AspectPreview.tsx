@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { VideoInfo, ProcessingSettings, OutputDimensions } from '../types';
+import { calculatePreviewCropRect, isCropEnabled } from '../utils/crop';
 
 interface AspectPreviewProps {
   videoPreviewUrl: string;
@@ -16,41 +17,41 @@ export default function AspectPreview({
   settings,
   onSettingsChange,
 }: AspectPreviewProps) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const isOriginal = settings.outputAspectRatio === 'original';
   const srcW = videoInfo.effectiveWidth;
   const srcH = videoInfo.effectiveHeight;
   const outW = outputDimensions.width;
   const outH = outputDimensions.height;
 
-  // Calculate preview container dimensions (max 400px wide)
-  const maxPreviewWidth = 400;
+  // Calculate preview dimensions (responsive, max 500px wide)
+  const maxPreviewWidth = 500;
   const previewScale = Math.min(maxPreviewWidth / Math.max(outW, srcW), 1);
   const previewW = Math.round(outW * previewScale);
   const previewH = Math.round(outH * previewScale);
 
-  // Calculate how the source video maps to the output
+  // Calculate crop overlay if crop is enabled
+  const cropEnabled = isCropEnabled(settings.videoCrop);
+  const cropRect = cropEnabled ? calculatePreviewCropRect(settings.videoCrop) : null;
+
+  // Calculate aspect ratio conversion overlay if needed
+  const isOriginal = settings.outputAspectRatio === 'original';
   const srcRatio = srcW / srcH;
   const outRatio = outW / outH;
-
-  // For crop mode: show the crop area
-  let cropOverlay: { x: number; y: number; w: number; h: number } | null = null;
+  
+  let conversionOverlay: { x: number; y: number; w: number; h: number } | null = null;
   if (!isOriginal && settings.conversionMode === 'crop') {
-    // Calculate crop window in source coordinates
     let cropSrcW: number, cropSrcH: number;
     if (srcRatio > outRatio) {
-      // Source wider: scale to output height, crop width
       cropSrcH = srcH;
       cropSrcW = Math.round(srcH * outRatio);
     } else {
-      // Source taller: scale to output width, crop height
       cropSrcW = srcW;
       cropSrcH = Math.round(srcW / outRatio);
     }
 
-    // Position based on crop position
     let cropX = (srcW - cropSrcW) / 2;
     let cropY = (srcH - cropSrcH) / 2;
 
@@ -69,209 +70,323 @@ export default function AspectPreview({
         break;
     }
 
-    // Apply offsets
     const maxOffsetX = (srcW - cropSrcW) / 2;
     const maxOffsetY = (srcH - cropSrcH) / 2;
     cropX += settings.cropOffsetX * maxOffsetX;
     cropY += settings.cropOffsetY * maxOffsetY;
 
-    // Clamp
     cropX = Math.max(0, Math.min(srcW - cropSrcW, cropX));
     cropY = Math.max(0, Math.min(srcH - cropSrcH, cropY));
 
-    cropOverlay = {
-      x: cropX,
-      y: cropY,
-      w: cropSrcW,
-      h: cropSrcH,
+    conversionOverlay = {
+      x: cropX / srcW,
+      y: cropY / srcH,
+      w: cropSrcW / srcW,
+      h: cropSrcH / srcH,
     };
   }
+
+  // Drag handlers for crop positioning
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!cropEnabled || !containerRef.current) return;
+    
+    e.preventDefault();
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    setIsDragging(true);
+    setDragStart({ x, y });
+  }, [cropEnabled]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging || !cropEnabled || !containerRef.current) return;
+    
+    e.preventDefault();
+    const rect = containerRef.current.getBoundingClientRect();
+    const currentX = (e.clientX - rect.left) / rect.width;
+    const currentY = (e.clientY - rect.top) / rect.height;
+    
+    const deltaX = currentX - dragStart.x;
+    const deltaY = currentY - dragStart.y;
+    
+    const newPositionX = Math.max(0, Math.min(1, settings.videoCrop.positionX - deltaX));
+    const newPositionY = Math.max(0, Math.min(1, settings.videoCrop.positionY - deltaY));
+    
+    onSettingsChange({
+      ...settings,
+      videoCrop: {
+        ...settings.videoCrop,
+        positionX: newPositionX,
+        positionY: newPositionY,
+      },
+    });
+    
+    setDragStart({ x: currentX, y: currentY });
+  }, [isDragging, cropEnabled, dragStart, settings, onSettingsChange]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false);
+    };
+    
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
 
   const handlePositionChange = useCallback((pos: ProcessingSettings['cropPosition']) => {
     onSettingsChange({ ...settings, cropPosition: pos, cropOffsetX: 0, cropOffsetY: 0 });
   }, [settings, onSettingsChange]);
 
   return (
-    <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full p-5 flex items-center justify-between hover:bg-gray-800/30 transition-colors"
-      >
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          <span className="text-cyan-400">👁️</span> Output Preview
-          {!isOriginal && (
-            <span className="text-xs bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-full">
-              {outW}×{outH}
-            </span>
+    <div className="space-y-4">
+      {/* Preview Container */}
+      <div className="flex justify-center">
+        <div
+          ref={containerRef}
+          className="relative bg-black rounded-lg overflow-hidden select-none"
+          style={{
+            width: `${previewW}px`,
+            height: `${previewH}px`,
+            maxWidth: '100%',
+            cursor: cropEnabled ? 'move' : 'default',
+          }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
+          {/* Video Element */}
+          <video
+            src={videoPreviewUrl}
+            className="w-full h-full object-cover pointer-events-none"
+            muted
+            playsInline
+          />
+
+          {/* Conversion Overlay (aspect ratio crop) */}
+          {conversionOverlay && (
+            <>
+              {/* Darkened areas outside conversion crop */}
+              <div
+                className="absolute bg-black/70 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: 0,
+                  width: `${conversionOverlay.x * 100}%`,
+                  height: '100%',
+                }}
+              />
+              <div
+                className="absolute bg-black/70 pointer-events-none"
+                style={{
+                  left: `${(conversionOverlay.x + conversionOverlay.w) * 100}%`,
+                  top: 0,
+                  right: 0,
+                  height: '100%',
+                }}
+              />
+              <div
+                className="absolute bg-black/70 pointer-events-none"
+                style={{
+                  left: `${conversionOverlay.x * 100}%`,
+                  top: 0,
+                  width: `${conversionOverlay.w * 100}%`,
+                  height: `${conversionOverlay.y * 100}%`,
+                }}
+              />
+              <div
+                className="absolute bg-black/70 pointer-events-none"
+                style={{
+                  left: `${conversionOverlay.x * 100}%`,
+                  top: `${(conversionOverlay.y + conversionOverlay.h) * 100}%`,
+                  width: `${conversionOverlay.w * 100}%`,
+                  bottom: 0,
+                }}
+              />
+              {/* Conversion crop border */}
+              <div
+                className="absolute border-2 border-blue-400 pointer-events-none"
+                style={{
+                  left: `${conversionOverlay.x * 100}%`,
+                  top: `${conversionOverlay.y * 100}%`,
+                  width: `${conversionOverlay.w * 100}%`,
+                  height: `${conversionOverlay.h * 100}%`,
+                }}
+              />
+            </>
           )}
-        </h3>
-        <span className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>▼</span>
-      </button>
 
-      {isOpen && (
-        <div className="px-5 pb-5 border-t border-gray-800 pt-4 space-y-4">
-          {/* Preview Area */}
-          <div className="flex justify-center">
-            <div
-              ref={containerRef}
-              className="relative bg-black rounded-lg overflow-hidden border border-gray-700"
-              style={{ width: previewW, height: previewH }}
-            >
-              {/* Source video displayed in the output frame */}
-              {isOriginal ? (
-                // Original mode: show video as-is
-                <video
-                  src={videoPreviewUrl}
-                  className="w-full h-full object-contain"
-                  muted
-                />
-              ) : settings.conversionMode === 'crop' && cropOverlay ? (
-                // Crop mode: show cropped portion
-                <div className="w-full h-full relative overflow-hidden">
-                  <video
-                    src={videoPreviewUrl}
-                    className="absolute"
-                    style={{
-                      width: `${(srcW / cropOverlay.w) * 100}%`,
-                      height: `${(srcH / cropOverlay.h) * 100}%`,
-                      left: `${-(cropOverlay.x / cropOverlay.w) * 100}%`,
-                      top: `${-(cropOverlay.y / cropOverlay.h) * 100}%`,
-                      objectFit: 'fill',
-                    }}
-                    muted
-                  />
+          {/* Video Crop Overlay */}
+          {cropEnabled && cropRect && (
+            <>
+              {/* Darkened areas outside crop */}
+              <div
+                className="absolute bg-black/60 pointer-events-none"
+                style={{
+                  left: 0,
+                  top: 0,
+                  width: `${cropRect.x * 100}%`,
+                  height: '100%',
+                }}
+              />
+              <div
+                className="absolute bg-black/60 pointer-events-none"
+                style={{
+                  left: `${(cropRect.x + cropRect.width) * 100}%`,
+                  top: 0,
+                  right: 0,
+                  height: '100%',
+                }}
+              />
+              <div
+                className="absolute bg-black/60 pointer-events-none"
+                style={{
+                  left: `${cropRect.x * 100}%`,
+                  top: 0,
+                  width: `${cropRect.width * 100}%`,
+                  height: `${cropRect.y * 100}%`,
+                }}
+              />
+              <div
+                className="absolute bg-black/60 pointer-events-none"
+                style={{
+                  left: `${cropRect.x * 100}%`,
+                  top: `${(cropRect.y + cropRect.height) * 100}%`,
+                  width: `${cropRect.width * 100}%`,
+                  bottom: 0,
+                }}
+              />
+              {/* Crop border */}
+              <div
+                className="absolute border-2 border-cyan-400 pointer-events-none"
+                style={{
+                  left: `${cropRect.x * 100}%`,
+                  top: `${cropRect.y * 100}%`,
+                  width: `${cropRect.width * 100}%`,
+                  height: `${cropRect.height * 100}%`,
+                }}
+              >
+                <div className="absolute top-1 left-1 text-xs text-cyan-300 bg-black/70 px-1 rounded">
+                  {settings.videoCrop.factor}×
                 </div>
-              ) : settings.conversionMode === 'fit' ? (
-                // Fit mode: show video centered with background
-                <div
-                  className="w-full h-full flex items-center justify-center"
-                  style={{
-                    backgroundColor: settings.fitBackground === 'white' ? 'white'
-                      : settings.fitBackground === 'custom' ? (settings.fitBackgroundColor || 'black')
-                      : 'black'
-                  }}
-                >
-                  <video
-                    src={videoPreviewUrl}
-                    className="max-w-full max-h-full object-contain"
-                    muted
-                  />
-                </div>
-              ) : (
-                // Stretch mode
-                <video
-                  src={videoPreviewUrl}
-                  className="w-full h-full object-fill"
-                  muted
-                />
-              )}
-
-              {/* Output dimension label */}
-              <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                {outW}×{outH}
               </div>
-            </div>
-          </div>
+            </>
+          )}
 
-          {/* Output info */}
-          <div className="text-center text-sm text-gray-400">
-            Output: <span className="text-gray-200 font-mono">{outW} × {outH}</span>
+          {/* Output dimensions label */}
+          <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded pointer-events-none">
+            {outW}×{outH}
+          </div>
+        </div>
+      </div>
+
+      {/* Preview Info */}
+      <div className="text-center text-sm text-gray-400">
+        Output: <span className="text-gray-200 font-mono">{outW} × {outH}</span>
+        {' • '}
+        <span className="text-gray-200">{outputDimensions.aspectRatioLabel}</span>
+        {cropEnabled && (
+          <>
             {' • '}
-            <span className="text-gray-200">{outputDimensions.aspectRatioLabel}</span>
+            <span className="text-cyan-400">Crop: {settings.videoCrop.factor}×</span>
+          </>
+        )}
+      </div>
+
+      {/* Crop Position Controls (only when crop is enabled) */}
+      {cropEnabled && (
+        <div className="space-y-3 pt-3 border-t border-gray-800">
+          <p className="text-sm text-gray-400 font-medium">Crop Position:</p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {[
+              { value: 'top', label: '⬆ Top' },
+              { value: 'center', label: '⊙ Center' },
+              { value: 'bottom', label: '⬇ Bottom' },
+              { value: 'left', label: '⬅ Left' },
+              { value: 'right', label: '➡ Right' },
+            ].map(pos => (
+              <button
+                key={pos.value}
+                onClick={() => handlePositionChange(pos.value as ProcessingSettings['cropPosition'])}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  settings.cropPosition === pos.value
+                    ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
+                    : 'bg-gray-800/50 border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500'
+                }`}
+              >
+                {pos.label}
+              </button>
+            ))}
           </div>
 
-          {/* Crop Position Controls (only for crop mode with different aspect ratio) */}
-          {!isOriginal && settings.conversionMode === 'crop' && (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-400 font-medium">Crop Position:</p>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {[
-                  { value: 'top', label: '⬆ Top', desc: 'Keep top of video' },
-                  { value: 'center', label: '⊙ Center', desc: 'Keep center of video' },
-                  { value: 'bottom', label: '⬇ Bottom', desc: 'Keep bottom of video' },
-                  { value: 'left', label: '⬅ Left', desc: 'Keep left of video' },
-                  { value: 'right', label: '➡ Right', desc: 'Keep right of video' },
-                ].map(pos => (
-                  <button
-                    key={pos.value}
-                    onClick={() => handlePositionChange(pos.value as ProcessingSettings['cropPosition'])}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      settings.cropPosition === pos.value
-                        ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
-                        : 'bg-gray-800/50 border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500'
-                    }`}
-                    title={pos.desc}
-                  >
-                    {pos.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Fine-tune offset sliders */}
-              <div className="grid grid-cols-2 gap-4 mt-3">
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Horizontal offset</label>
-                  <input
-                    type="range"
-                    min="-1"
-                    max="1"
-                    step="0.05"
-                    value={settings.cropOffsetX}
-                    onChange={(e) => onSettingsChange({ ...settings, cropOffsetX: parseFloat(e.target.value) })}
-                    className="w-full accent-cyan-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Vertical offset</label>
-                  <input
-                    type="range"
-                    min="-1"
-                    max="1"
-                    step="0.05"
-                    value={settings.cropOffsetY}
-                    onChange={(e) => onSettingsChange({ ...settings, cropOffsetY: parseFloat(e.target.value) })}
-                    className="w-full accent-cyan-500"
-                  />
-                </div>
-              </div>
+          {/* Fine-tune offset sliders */}
+          <div className="grid grid-cols-2 gap-4 mt-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Horizontal offset</label>
+              <input
+                type="range"
+                min="-1"
+                max="1"
+                step="0.05"
+                value={settings.cropOffsetX}
+                onChange={(e) => onSettingsChange({ ...settings, cropOffsetX: parseFloat(e.target.value) })}
+                className="w-full accent-cyan-500"
+              />
             </div>
-          )}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Vertical offset</label>
+              <input
+                type="range"
+                min="-1"
+                max="1"
+                step="0.05"
+                value={settings.cropOffsetY}
+                onChange={(e) => onSettingsChange({ ...settings, cropOffsetY: parseFloat(e.target.value) })}
+                className="w-full accent-cyan-500"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
-          {/* Fit background controls */}
-          {!isOriginal && settings.conversionMode === 'fit' && (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-400 font-medium">Background:</p>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { value: 'black', label: '⬛ Black' },
-                  { value: 'white', label: '⬜ White' },
-                  { value: 'blur', label: '🔵 Blurred Video' },
-                  { value: 'custom', label: '🎨 Custom Color' },
-                ].map(bg => (
-                  <button
-                    key={bg.value}
-                    onClick={() => onSettingsChange({ ...settings, fitBackground: bg.value as ProcessingSettings['fitBackground'] })}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      settings.fitBackground === bg.value
-                        ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
-                        : 'bg-gray-800/50 border border-gray-700 text-gray-400 hover:text-gray-200'
-                    }`}
-                  >
-                    {bg.label}
-                  </button>
-                ))}
-              </div>
-              {settings.fitBackground === 'custom' && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={settings.fitBackgroundColor || '#000000'}
-                    onChange={(e) => onSettingsChange({ ...settings, fitBackgroundColor: e.target.value })}
-                    className="w-8 h-8 rounded cursor-pointer"
-                  />
-                  <span className="text-sm text-gray-400 font-mono">{settings.fitBackgroundColor || '#000000'}</span>
-                </div>
-              )}
+      {/* Fit background controls (only for fit mode) */}
+      {!isOriginal && settings.conversionMode === 'fit' && (
+        <div className="space-y-3 pt-3 border-t border-gray-800">
+          <p className="text-sm text-gray-400 font-medium">Background:</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: 'black', label: '⬛ Black' },
+              { value: 'white', label: '⬜ White' },
+              { value: 'blur', label: '🔵 Blurred Video' },
+              { value: 'custom', label: '🎨 Custom Color' },
+            ].map(bg => (
+              <button
+                key={bg.value}
+                onClick={() => onSettingsChange({ ...settings, fitBackground: bg.value as ProcessingSettings['fitBackground'] })}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  settings.fitBackground === bg.value
+                    ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-300'
+                    : 'bg-gray-800/50 border border-gray-700 text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {bg.label}
+              </button>
+            ))}
+          </div>
+          {settings.fitBackground === 'custom' && (
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={settings.fitBackgroundColor || '#000000'}
+                onChange={(e) => onSettingsChange({ ...settings, fitBackgroundColor: e.target.value })}
+                className="w-8 h-8 rounded cursor-pointer"
+              />
+              <span className="text-sm text-gray-400 font-mono">{settings.fitBackgroundColor || '#000000'}</span>
             </div>
           )}
         </div>
