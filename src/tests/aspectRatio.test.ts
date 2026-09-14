@@ -100,6 +100,11 @@ function createDefaultSettings(overrides: Partial<ProcessingSettings> = {}): Pro
     cropOffsetY: 0,
     frameRate: 'original',
     audio: 'aac192',
+    videoCrop: {
+      factor: 1,
+      positionX: 0.5,
+      positionY: 0.5,
+    },
     ...overrides,
   };
 }

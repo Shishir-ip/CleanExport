@@ -3,6 +3,7 @@ import type { VideoInfo, ProcessingSettings, CleanupRegion, ProcessingState, Out
 import { probeVideo, processVideo } from './utils/ffmpeg';
 import { calculateOutputDimensions, getSourceDescription, getOutputDescription } from './utils/aspectRatio';
 import { getMetadataSummary } from './utils/metadata';
+import { getCropSummary } from './utils/crop';
 import UploadArea from './components/UploadArea';
 import VideoAnalysis from './components/VideoAnalysis';
 import ProcessingSettingsPanel from './components/ProcessingSettings';
@@ -14,6 +15,7 @@ import Disclaimer from './components/Disclaimer';
 import Header from './components/Header';
 import AspectPreview from './components/AspectPreview';
 import MetadataEditor from './components/MetadataEditor';
+import { CropEditor } from './components/CropEditor';
 
 function App() {
   const [step, setStep] = useState<AppStep>('upload');
@@ -30,6 +32,11 @@ function App() {
     cropOffsetY: 0,
     frameRate: 'original',
     audio: 'aac192',
+    videoCrop: {
+      factor: 1,
+      positionX: 0.5,
+      positionY: 0.5,
+    },
   });
   const [cleanupRegions, setCleanupRegions] = useState<CleanupRegion[]>([]);
   const [metadataSettings, setMetadataSettings] = useState<MetadataSettings>({
@@ -233,6 +240,23 @@ function App() {
       software: 'keep',
       removeDeviceInfo: false,
     });
+    setSettings({
+      quality: 'balanced',
+      outputResolution: 'original',
+      outputAspectRatio: 'original',
+      conversionMode: 'crop',
+      fitBackground: 'black',
+      cropPosition: 'center',
+      cropOffsetX: 0,
+      cropOffsetY: 0,
+      frameRate: 'original',
+      audio: 'aac192',
+      videoCrop: {
+        factor: 1,
+        positionX: 0.5,
+        positionY: 0.5,
+      },
+    });
     setProcessingState({
       status: 'idle',
       progress: 0,
@@ -368,6 +392,15 @@ function App() {
               />
             )}
 
+            {/* Video Crop */}
+            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+              <CropEditor
+                videoInfo={videoInfo}
+                cropSettings={settings.videoCrop}
+                onCropSettingsChange={(videoCrop) => setSettings({ ...settings, videoCrop })}
+              />
+            </div>
+
             <VisualCleanup
               videoPreviewUrl={videoPreviewUrl}
               videoInfo={videoInfo}
@@ -423,6 +456,11 @@ function App() {
                 {metadataSettings.preset !== 'keep-original' && (
                   <p className="text-sm text-purple-400 mt-2">
                     🏷️ Metadata: {metadataSettings.preset === 'privacy-clean' ? 'Privacy Clean' : metadataSettings.preset === 'remove-all' ? 'Remove All' : 'Custom'}
+                  </p>
+                )}
+                {settings.videoCrop.factor > 1 && (
+                  <p className="text-sm text-cyan-400 mt-2">
+                    ✂️ Crop: {getCropSummary(settings.videoCrop)}
                   </p>
                 )}
                 <div className="mt-4 pt-3 border-t border-gray-800">

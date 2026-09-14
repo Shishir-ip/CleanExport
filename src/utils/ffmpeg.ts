@@ -8,6 +8,11 @@ import {
   needsRotation,
 } from './aspectRatio';
 import { buildMetadataArgs } from './metadata';
+import {
+  calculateCropRegion,
+  generateCropFilter,
+  isCropEnabled,
+} from './crop';
 
 let ffmpeg: FFmpeg | null = null;
 let loaded = false;
@@ -307,38 +312,62 @@ function buildVideoFilter(
   // Use effective dimensions (after rotation) as the "source" for filter calculations
   const srcW = videoInfo.effectiveWidth;
   const srcH = videoInfo.effectiveHeight;
-
+  
   onLog(`[filter] Source (effective): ${srcW}x${srcH}`);
   onLog(`[filter] Target: ${targetW}x${targetH}`);
   onLog(`[filter] Mode: ${settings.outputAspectRatio}`);
-
-  // If Original mode with Original resolution, no filter needed
-  if (settings.outputAspectRatio === 'original' && settings.outputResolution === 'original') {
-    onLog(`[filter] → No filter needed (Original mode, Original resolution)`);
+  
+  const filters: string[] = [];
+  
+  // Step 1: Apply video crop if enabled (factor > 1)
+  if (isCropEnabled(settings.videoCrop)) {
+    const cropRegion = calculateCropRegion(srcW, srcH, settings.videoCrop);
+    const cropFilter = generateCropFilter(cropRegion);
+    filters.push(cropFilter);
+    onLog(`[filter] → Video Crop: ${cropFilter}`);
+    
+    // After crop, the effective source dimensions change
+    // We need to recalculate for subsequent operations
+    const croppedW = cropRegion.width;
+    const croppedH = cropRegion.height;
+    onLog(`[filter] → Cropped dimensions: ${croppedW}x${croppedH}`);
+  }
+  
+  // If Original mode with Original resolution and no crop, no filter needed
+  if (settings.outputAspectRatio === 'original' && settings.outputResolution === 'original' && !isCropEnabled(settings.videoCrop)) {
+    onLog(`[filter] → No filter needed (Original mode, Original resolution, no crop)`);
     return '';
   }
-
-  const srcRatio = srcW / srcH;
+  
+  // Calculate source ratio after crop (if applicable)
+  let effectiveSrcW = srcW;
+  let effectiveSrcH = srcH;
+  if (isCropEnabled(settings.videoCrop)) {
+    const cropRegion = calculateCropRegion(srcW, srcH, settings.videoCrop);
+    effectiveSrcW = cropRegion.width;
+    effectiveSrcH = cropRegion.height;
+  }
+  
+  const srcRatio = effectiveSrcW / effectiveSrcH;
   const targetRatio = targetW / targetH;
   const ratioDiff = Math.abs(srcRatio - targetRatio) / Math.max(targetRatio, 0.001);
-
-  // If same size and same ratio, no filter needed
-  if (srcW === targetW && srcH === targetH) {
-    onLog(`[filter] → No filter needed (same dimensions)`);
-    return '';
+  
+  // If same size and same ratio, no additional filter needed (crop already applied)
+  if (effectiveSrcW === targetW && effectiveSrcH === targetH) {
+    onLog(`[filter] → No additional filter needed (same dimensions after crop)`);
+    return filters.join(',');
   }
-
+  
   // If same aspect ratio (within 1%), just scale
   if (ratioDiff < 0.01 || settings.outputAspectRatio === 'original') {
-    const filter = `scale=${targetW}:${targetH}`;
-    onLog(`[filter] → Scale: ${filter}`);
-    return filter;
+    filters.push(`scale=${targetW}:${targetH}`);
+    onLog(`[filter] → Scale: scale=${targetW}:${targetH}`);
+    return filters.join(',');
   }
-
+  
   // Different aspect ratio - apply conversion mode
   switch (settings.conversionMode) {
     case 'crop': {
-      const filters: string[] = [];
       if (srcRatio > targetRatio) {
         // Source wider: scale to target height, crop width
         filters.push(`scale=-2:${targetH}`);
@@ -348,28 +377,27 @@ function buildVideoFilter(
         filters.push(`scale=${targetW}:-2`);
         filters.push(`crop=${targetW}:${targetH}:(iw-${targetW})/2:(ih-${targetH})/2`);
       }
-      const filter = filters.join(',');
-      onLog(`[filter] → Crop: ${filter}`);
-      return filter;
+      onLog(`[filter] → Aspect Ratio Crop: ${filters.slice(-2).join(',')}`);
+      return filters.join(',');
     }
     case 'fit': {
       const bgColor = settings.fitBackground === 'white' ? 'white'
         : settings.fitBackground === 'custom' ? (settings.fitBackgroundColor || 'black')
         : 'black';
-      const filter = `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=${bgColor}`;
-      onLog(`[filter] → Fit: ${filter}`);
-      return filter;
+      filters.push(`scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease`);
+      filters.push(`pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=${bgColor}`);
+      onLog(`[filter] → Fit: ${filters.slice(-2).join(',')}`);
+      return filters.join(',');
     }
     case 'stretch': {
-      const filter = `scale=${targetW}:${targetH}`;
-      onLog(`[filter] → Stretch: ${filter}`);
-      return filter;
+      filters.push(`scale=${targetW}:${targetH}`);
+      onLog(`[filter] → Stretch: scale=${targetW}:${targetH}`);
+      return filters.join(',');
     }
     default:
-      return '';
+      return filters.join(',');
   }
 }
-
 /**
  * Main video processing function.
  * 
