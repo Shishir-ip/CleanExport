@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import type { VideoInfo, ProcessingSettings as ProcessingSettingsType, CleanupRegion, ProcessingState, OutputInfo, AppStep } from './types';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import type { VideoInfo, ProcessingSettings, CleanupRegion, ProcessingState, OutputInfo, AppStep } from './types';
 import { probeVideo, processVideo } from './utils/ffmpeg';
+import { calculateOutputDimensions, getSourceDescription, getOutputDescription } from './utils/aspectRatio';
 import UploadArea from './components/UploadArea';
 import VideoAnalysis from './components/VideoAnalysis';
 import ProcessingSettingsPanel from './components/ProcessingSettings';
@@ -10,14 +11,21 @@ import Comparison from './components/Comparison';
 import DownloadPanel from './components/DownloadPanel';
 import Disclaimer from './components/Disclaimer';
 import Header from './components/Header';
+import AspectPreview from './components/AspectPreview';
 
 function App() {
   const [step, setStep] = useState<AppStep>('upload');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
-  const [settings, setSettings] = useState<ProcessingSettingsType>({
+  const [settings, setSettings] = useState<ProcessingSettings>({
     quality: 'balanced',
     outputResolution: 'original',
+    outputAspectRatio: 'original',
+    conversionMode: 'crop',
+    fitBackground: 'black',
+    cropPosition: 'center',
+    cropOffsetX: 0,
+    cropOffsetY: 0,
     frameRate: 'original',
     audio: 'aac192',
   });
@@ -35,6 +43,12 @@ function App() {
   const [outputPreviewUrl, setOutputPreviewUrl] = useState<string>('');
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
+
+  // Calculate output dimensions for preview
+  const outputDimensions = useMemo(() => {
+    if (!videoInfo) return null;
+    return calculateOutputDimensions(videoInfo, settings);
+  }, [videoInfo, settings]);
 
   useEffect(() => {
     return () => {
@@ -71,7 +85,6 @@ function App() {
     const previewUrl = URL.createObjectURL(file);
     setVideoPreviewUrl(previewUrl);
 
-    // Analyze video
     setProcessingState({
       status: 'analyzing',
       progress: 0,
@@ -82,7 +95,7 @@ function App() {
     });
 
     try {
-      const info = await probeVideo(file, (msg) => {
+      const info = await probeVideo(file, (msg: string) => {
         setProcessingState(prev => ({
           ...prev,
           technicalLog: [...prev.technicalLog, msg],
@@ -101,7 +114,7 @@ function App() {
   }, []);
 
   const handleStartProcessing = useCallback(async () => {
-    if (!videoFile) return;
+    if (!videoFile || !videoInfo) return;
 
     startTimeRef.current = Date.now();
     timerRef.current = setInterval(() => {
@@ -128,22 +141,23 @@ function App() {
         videoFile,
         settings,
         cleanupRegions,
-        (msg) => {
+        videoInfo,
+        (msg: string) => {
           setProcessingState(prev => ({
             ...prev,
             technicalLog: [...prev.technicalLog, msg],
           }));
         },
-        (progress) => {
+        (progress: number) => {
           setProcessingState(prev => ({
             ...prev,
             progress: Math.round(progress),
           }));
         },
-        (step) => {
+        (stepName: string) => {
           setProcessingState(prev => ({
             ...prev,
-            currentStep: step,
+            currentStep: stepName,
           }));
         }
       );
@@ -163,7 +177,7 @@ function App() {
         error: `Processing failed: ${err instanceof Error ? err.message : 'Unknown error'}. This may be due to insufficient memory or a corrupted input file.`,
       }));
     }
-  }, [videoFile, settings, cleanupRegions]);
+  }, [videoFile, videoInfo, settings, cleanupRegions]);
 
   const handleReset = useCallback(() => {
     if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
@@ -284,7 +298,30 @@ function App() {
               </button>
             </div>
 
-            <ProcessingSettingsPanel settings={settings} onChange={setSettings} videoInfo={videoInfo} />
+            {/* Source info banner */}
+            <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+              <p className="text-sm text-blue-300">
+                <span className="text-blue-400 font-semibold">Detected source:</span>{' '}
+                {getSourceDescription(videoInfo)}
+              </p>
+            </div>
+
+            <ProcessingSettingsPanel
+              settings={settings}
+              onChange={setSettings}
+              videoInfo={videoInfo}
+            />
+
+            {/* Aspect Ratio Preview */}
+            {outputDimensions && videoPreviewUrl && (
+              <AspectPreview
+                videoPreviewUrl={videoPreviewUrl}
+                videoInfo={videoInfo}
+                outputDimensions={outputDimensions}
+                settings={settings}
+                onSettingsChange={setSettings}
+              />
+            )}
 
             <VisualCleanup
               videoPreviewUrl={videoPreviewUrl}
@@ -293,32 +330,51 @@ function App() {
               onRegionsChange={setCleanupRegions}
             />
 
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
-              <h3 className="text-lg font-semibold mb-3">Processing Summary</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-400">Quality:</span>
-                  <span className="ml-2 capitalize">{settings.quality}</span>
+            {/* Output Summary */}
+            {outputDimensions && (
+              <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                <h3 className="text-lg font-semibold mb-3">Output Summary</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-400">Quality:</span>
+                    <span className="ml-2 capitalize">{settings.quality}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Aspect Ratio:</span>
+                    <span className="ml-2">{outputDimensions.aspectRatioLabel}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Resolution:</span>
+                    <span className="ml-2">{outputDimensions.width}×{outputDimensions.height}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Frame Rate:</span>
+                    <span className="ml-2 capitalize">{settings.frameRate === 'original' ? 'Original' : settings.frameRate + ' FPS'}</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-gray-400">Resolution:</span>
-                  <span className="ml-2 capitalize">{settings.outputResolution}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Frame Rate:</span>
-                  <span className="ml-2 capitalize">{settings.frameRate === 'original' ? 'Original' : settings.frameRate + ' FPS'}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Audio:</span>
-                  <span className="ml-2 capitalize">{settings.audio === 'original' ? 'Original' : settings.audio.toUpperCase()}</span>
+                {settings.outputAspectRatio !== 'original' && (
+                  <div className="mt-3 text-sm">
+                    <span className="text-gray-400">Conversion:</span>
+                    <span className="ml-2 capitalize">
+                      {settings.conversionMode === 'crop' ? 'Crop to Fill' : settings.conversionMode === 'fit' ? 'Fit with Background' : 'Stretch'}
+                    </span>
+                    {settings.conversionMode === 'crop' && (
+                      <span className="ml-2 text-gray-500">({settings.cropPosition})</span>
+                    )}
+                  </div>
+                )}
+                {cleanupRegions.length > 0 && (
+                  <p className="text-sm text-yellow-400 mt-2">
+                    ⚠️ {cleanupRegions.length} visual cleanup region{cleanupRegions.length > 1 ? 's' : ''} applied
+                  </p>
+                )}
+                <div className="mt-4 pt-3 border-t border-gray-800">
+                  <p className="text-xs text-gray-500">
+                    Output: <span className="text-gray-300 font-mono">{getOutputDescription(outputDimensions)}</span>
+                  </p>
                 </div>
               </div>
-              {cleanupRegions.length > 0 && (
-                <p className="text-sm text-yellow-400 mt-2">
-                  ⚠️ {cleanupRegions.length} visual cleanup region{cleanupRegions.length > 1 ? 's' : ''} applied
-                </p>
-              )}
-            </div>
+            )}
 
             <div className="flex gap-4 justify-center pt-4">
               <button

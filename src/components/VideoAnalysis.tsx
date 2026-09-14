@@ -24,12 +24,13 @@ export default function VideoAnalysis({ info }: VideoAnalysisProps) {
           <InfoRow label="Container" value={info.containerFormat} />
           <InfoRow label="Video Codec" value={info.videoCodec} />
           <InfoRow label="Audio Codec" value={info.audioCodec} />
-          <InfoRow label="Resolution" value={info.resolution} />
-          <InfoRow label="Aspect Ratio" value={info.aspectRatio} />
+          <InfoRow label="Stream Resolution" value={info.resolution} />
+          <InfoRow label="Effective Resolution" value={`${info.effectiveWidth}×${info.effectiveHeight}`} />
+          <InfoRow label="Aspect Ratio" value={info.effectiveAspectRatio} />
           <InfoRow label="Frame Rate" value={info.frameRate} />
           <InfoRow label="Bitrate" value={info.bitrate} />
           <InfoRow label="Duration" value={info.duration} />
-          <InfoRow label="Rotation" value={info.rotation} />
+          <InfoRow label="Rotation" value={`${info.rotation}°`} />
           <InfoRow label="Color Space" value={info.colorSpace} />
           <InfoRow label="HDR/SDR" value={info.hdrInfo} />
           <InfoRow label="Audio Sample Rate" value={info.audioSampleRate} />
