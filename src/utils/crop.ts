@@ -6,13 +6,18 @@ import type { VideoCropSettings, VideoInfo } from '../types';
  * @param sourceWidth - Source video width (after rotation if applicable)
  * @param sourceHeight - Source video height (after rotation if applicable)
  * @param cropSettings - Crop factor and position
- * @returns Crop region with x, y, width, height in pixels
+ * @returns Crop region with x, y, width, height in pixels, or null if dimensions are invalid
  */
 export function calculateCropRegion(
-  sourceWidth: number,
-  sourceHeight: number,
+  sourceWidth: number | null,
+  sourceHeight: number | null,
   cropSettings: VideoCropSettings
-): { x: number; y: number; width: number; height: number } {
+): { x: number; y: number; width: number; height: number } | null {
+  // Validate dimensions
+  if (sourceWidth == null || sourceHeight == null || sourceWidth <= 0 || sourceHeight <= 0) {
+    return null;
+  }
+  
   const { factor, positionX, positionY } = cropSettings;
 
   // If factor is 1, no crop needed

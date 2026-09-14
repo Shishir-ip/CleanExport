@@ -26,6 +26,15 @@ export default function AspectPreview({
   const outW = outputDimensions.width;
   const outH = outputDimensions.height;
 
+  // If dimensions are not available, show a placeholder
+  if (srcW == null || srcH == null || outW == null || outH == null || srcW <= 0 || srcH <= 0 || outW <= 0 || outH <= 0) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-gray-900/50 rounded-lg">
+        <p className="text-gray-500">Detecting video dimensions…</p>
+      </div>
+    );
+  }
+
   // Calculate preview dimensions (responsive, max 500px wide)
   const maxPreviewWidth = 500;
   const previewScale = Math.min(maxPreviewWidth / Math.max(outW, srcW), 1);
