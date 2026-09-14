@@ -62,6 +62,15 @@ export interface ProcessingSettings {
   cropOffsetY: number; // -1 to 1, 0 = center
   frameRate: 'original' | '60' | '30' | '24';
   audio: 'original' | 'aac192' | 'aac256';
+  videoCrop: VideoCropSettings;
+}
+
+export type VideoCropFactor = 1 | 1.2 | 1.5 | 2;
+
+export interface VideoCropSettings {
+  factor: VideoCropFactor;
+  positionX: number; // 0 to 1, 0.5 = center
+  positionY: number; // 0 to 1, 0.5 = center
 }
 
 export interface CropRegion {
