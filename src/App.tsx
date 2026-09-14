@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { VideoInfo, ProcessingSettings, CleanupRegion, ProcessingState, OutputInfo, AppStep } from './types';
+import type { VideoInfo, ProcessingSettings, CleanupRegion, ProcessingState, OutputInfo, AppStep, MetadataSettings } from './types';
 import { probeVideo, processVideo } from './utils/ffmpeg';
 import { calculateOutputDimensions, getSourceDescription, getOutputDescription } from './utils/aspectRatio';
+import { getMetadataSummary } from './utils/metadata';
 import UploadArea from './components/UploadArea';
 import VideoAnalysis from './components/VideoAnalysis';
 import ProcessingSettingsPanel from './components/ProcessingSettings';
@@ -12,6 +13,7 @@ import DownloadPanel from './components/DownloadPanel';
 import Disclaimer from './components/Disclaimer';
 import Header from './components/Header';
 import AspectPreview from './components/AspectPreview';
+import MetadataEditor from './components/MetadataEditor';
 
 function App() {
   const [step, setStep] = useState<AppStep>('upload');
@@ -30,6 +32,27 @@ function App() {
     audio: 'aac192',
   });
   const [cleanupRegions, setCleanupRegions] = useState<CleanupRegion[]>([]);
+  const [metadataSettings, setMetadataSettings] = useState<MetadataSettings>({
+    preset: 'keep-original',
+    title: null,
+    description: null,
+    comment: null,
+    author: null,
+    artist: null,
+    copyright: null,
+    keywords: null,
+    genre: null,
+    language: null,
+    creationDate: 'keep',
+    recordingDate: 'keep',
+    country: null,
+    city: null,
+    gpsLatitude: null,
+    gpsLongitude: null,
+    clearLocation: false,
+    software: 'keep',
+    removeDeviceInfo: false,
+  });
   const [processingState, setProcessingState] = useState<ProcessingState>({
     status: 'idle',
     progress: 0,
@@ -159,7 +182,8 @@ function App() {
             ...prev,
             currentStep: stepName,
           }));
-        }
+        },
+        metadataSettings
       );
 
       if (timerRef.current) clearInterval(timerRef.current);
@@ -177,7 +201,7 @@ function App() {
         error: `Processing failed: ${err instanceof Error ? err.message : 'Unknown error'}. This may be due to insufficient memory or a corrupted input file.`,
       }));
     }
-  }, [videoFile, videoInfo, settings, cleanupRegions]);
+  }, [videoFile, videoInfo, settings, cleanupRegions, metadataSettings]);
 
   const handleReset = useCallback(() => {
     if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
@@ -188,6 +212,27 @@ function App() {
     setVideoPreviewUrl('');
     setOutputPreviewUrl('');
     setCleanupRegions([]);
+    setMetadataSettings({
+      preset: 'keep-original',
+      title: null,
+      description: null,
+      comment: null,
+      author: null,
+      artist: null,
+      copyright: null,
+      keywords: null,
+      genre: null,
+      language: null,
+      creationDate: 'keep',
+      recordingDate: 'keep',
+      country: null,
+      city: null,
+      gpsLatitude: null,
+      gpsLongitude: null,
+      clearLocation: false,
+      software: 'keep',
+      removeDeviceInfo: false,
+    });
     setProcessingState({
       status: 'idle',
       progress: 0,
@@ -330,6 +375,13 @@ function App() {
               onRegionsChange={setCleanupRegions}
             />
 
+            {/* Metadata Editor */}
+            <MetadataEditor
+              videoInfo={videoInfo}
+              settings={metadataSettings}
+              onChange={setMetadataSettings}
+            />
+
             {/* Output Summary */}
             {outputDimensions && (
               <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
@@ -366,6 +418,11 @@ function App() {
                 {cleanupRegions.length > 0 && (
                   <p className="text-sm text-yellow-400 mt-2">
                     ⚠️ {cleanupRegions.length} visual cleanup region{cleanupRegions.length > 1 ? 's' : ''} applied
+                  </p>
+                )}
+                {metadataSettings.preset !== 'keep-original' && (
+                  <p className="text-sm text-purple-400 mt-2">
+                    🏷️ Metadata: {metadataSettings.preset === 'privacy-clean' ? 'Privacy Clean' : metadataSettings.preset === 'remove-all' ? 'Remove All' : 'Custom'}
                   </p>
                 )}
                 <div className="mt-4 pt-3 border-t border-gray-800">

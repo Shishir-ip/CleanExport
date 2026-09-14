@@ -108,3 +108,27 @@ export interface OutputDimensions {
   aspectRatioLabel: string;
   filterChain: string;
 }
+
+export type MetadataPreset = 'keep-original' | 'privacy-clean' | 'remove-all' | 'custom';
+
+export interface MetadataSettings {
+  preset: MetadataPreset;
+  title: string | null;
+  description: string | null;
+  comment: string | null;
+  author: string | null;
+  artist: string | null;
+  copyright: string | null;
+  keywords: string | null;
+  genre: string | null;
+  language: string | null;
+  creationDate: 'keep' | 'clear' | string;
+  recordingDate: 'keep' | 'clear' | string;
+  country: string | null;
+  city: string | null;
+  gpsLatitude: string | null;
+  gpsLongitude: string | null;
+  clearLocation: boolean;
+  software: 'keep' | 'clear';
+  removeDeviceInfo: boolean;
+}

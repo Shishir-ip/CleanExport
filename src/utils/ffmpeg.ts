@@ -1,12 +1,13 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
-import type { VideoInfo, ProcessingSettings, CleanupRegion, OutputInfo } from '../types';
+import type { VideoInfo, ProcessingSettings, CleanupRegion, OutputInfo, MetadataSettings } from '../types';
 import {
   calculateOutputDimensions,
   getEffectiveDimensions,
   simplifyRatio,
   needsRotation,
 } from './aspectRatio';
+import { buildMetadataArgs } from './metadata';
 
 let ffmpeg: FFmpeg | null = null;
 let loaded = false;
@@ -387,7 +388,8 @@ export async function processVideo(
   videoInfo: VideoInfo,
   onLog: (msg: string) => void,
   onProgress: (progress: number) => void,
-  onStepChange: (step: string) => void
+  onStepChange: (step: string) => void,
+  metadataSettings?: MetadataSettings
 ): Promise<OutputInfo> {
   const ff = await loadFFmpeg(onLog, onProgress);
 
@@ -425,6 +427,15 @@ export async function processVideo(
   // Remove all metadata
   args.push('-map_metadata', '-1');
   args.push('-map_chapters', '-1');
+
+  // Add custom metadata if provided
+  if (metadataSettings && metadataSettings.preset !== 'keep-original') {
+    const metadataArgs = buildMetadataArgs(metadataSettings);
+    if (metadataArgs.length > 0) {
+      args.push(...metadataArgs);
+      onLog(`[metadata] Adding ${metadataArgs.length / 2} custom metadata fields`);
+    }
+  }
 
   // Video codec settings based on quality
   const crfMap = { high: '18', balanced: '20', smaller: '24' };
