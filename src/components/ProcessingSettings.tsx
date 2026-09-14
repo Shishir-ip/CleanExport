@@ -116,8 +116,11 @@ export default function ProcessingSettingsPanel({ settings, onChange, videoInfo 
             Detected source:{' '}
             <span className="text-gray-300 font-medium">
               {videoInfo.effectiveAspectRatio}{' '}
-              {videoInfo.effectiveWidth > videoInfo.effectiveHeight ? 'Landscape' : videoInfo.effectiveHeight > videoInfo.effectiveWidth ? 'Portrait' : 'Square'}
-              {' '}• {videoInfo.effectiveWidth} × {videoInfo.effectiveHeight}
+              {videoInfo.effectiveWidth != null && videoInfo.effectiveHeight != null 
+                ? (videoInfo.effectiveWidth > videoInfo.effectiveHeight ? 'Landscape' : videoInfo.effectiveHeight > videoInfo.effectiveWidth ? 'Portrait' : 'Square')
+                : 'Detecting...'
+              }
+              {' '}• {videoInfo.effectiveWidth ?? '?'} × {videoInfo.effectiveHeight ?? '?'}
             </span>
           </p>
           {videoInfo.rotation > 0 && (

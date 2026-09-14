@@ -52,7 +52,8 @@ function gcd(a: number, b: number): number {
 /**
  * Simplify a ratio to its simplest integer form
  */
-export function simplifyRatio(w: number, h: number): string {
+export function simplifyRatio(w: number | null, h: number | null): string {
+  if (w == null || h == null || w <= 0 || h <= 0) return 'Unknown';
   const g = gcd(w, h);
   return `${w / g}:${h / g}`;
 }
@@ -71,7 +72,11 @@ export function formatAspectRatioDecimal(decimal: number): string {
  * Get the effective dimensions of a video considering rotation metadata.
  * If rotation is 90° or 270°, width and height are swapped.
  */
-export function getEffectiveDimensions(width: number, height: number, rotation: number): { w: number; h: number } {
+export function getEffectiveDimensions(width: number | null, height: number | null, rotation: number): { w: number | null; h: number | null } {
+  if (width == null || height == null) {
+    return { w: null, h: null };
+  }
+  
   const normalizedRotation = ((rotation % 360) + 360) % 360;
   if (normalizedRotation === 90 || normalizedRotation === 270) {
     return { w: height, h: width };
@@ -90,7 +95,8 @@ export function needsRotation(rotation: number): boolean {
 /**
  * Get the orientation label for given dimensions
  */
-export function getOrientationLabel(w: number, h: number): string {
+export function getOrientationLabel(w: number | null, h: number | null): string {
+  if (w == null || h == null) return 'Unknown';
   if (w > h) return 'Landscape';
   if (h > w) return 'Portrait';
   return 'Square';
@@ -99,7 +105,8 @@ export function getOrientationLabel(w: number, h: number): string {
 /**
  * Ensure dimensions are even numbers (required by most codecs)
  */
-export function ensureEven(n: number): number {
+export function ensureEven(n: number | null): number {
+  if (n == null) return 0;
   return n % 2 === 0 ? n : n + 1;
 }
 
@@ -112,6 +119,18 @@ export function calculateOutputDimensions(
   settings: ProcessingSettings
 ): OutputDimensions {
   const { effectiveWidth: srcW, effectiveHeight: srcH } = videoInfo;
+  
+  // If dimensions are not available yet, return placeholder
+  if (srcW == null || srcH == null) {
+    return {
+      width: 0,
+      height: 0,
+      aspectRatioDecimal: 0,
+      aspectRatioLabel: 'Detecting...',
+      filterChain: '',
+    };
+  }
+  
   const srcRatio = srcW / srcH;
 
   // Determine target aspect ratio
@@ -391,9 +410,15 @@ export function validateOutputDimensions(
  */
 export function getSourceDescription(videoInfo: VideoInfo): string {
   const { effectiveWidth: w, effectiveHeight: h, effectiveAspectRatioDecimal: dec } = videoInfo;
+  
+  // If dimensions are not available, return a placeholder
+  if (w == null || h == null) {
+    return 'Detecting video metadata…';
+  }
+  
   const orientation = getOrientationLabel(w, h);
   const ratio = simplifyRatio(w, h);
-  const decimalStr = formatAspectRatioDecimal(dec);
+  const decimalStr = dec != null && Number.isFinite(dec) && dec > 0 ? formatAspectRatioDecimal(dec) : 'Unknown';
   return `${ratio} ${orientation} • ${w} × ${h} • ${decimalStr}`;
 }
 

@@ -57,7 +57,11 @@ function assertEven(n: number, message: string) {
 function createMockVideoInfo(width: number, height: number, rotation: number = 0): VideoInfo {
   const effective = getEffectiveDimensions(width, height, rotation);
   const gcdFn = (a: number, b: number): number => b === 0 ? a : gcdFn(b, a % b);
-  const g = gcdFn(effective.w, effective.h);
+  
+  // Handle null dimensions
+  const effectiveW = effective.w ?? width;
+  const effectiveH = effective.h ?? height;
+  const g = (effectiveW > 0 && effectiveH > 0) ? gcdFn(effectiveW, effectiveH) : 1;
 
   return {
     filename: 'test.mp4',
@@ -72,8 +76,8 @@ function createMockVideoInfo(width: number, height: number, rotation: number = 0
     aspectRatioDecimal: width / height,
     effectiveWidth: effective.w,
     effectiveHeight: effective.h,
-    effectiveAspectRatio: simplifyRatio(effective.w, effective.h),
-    effectiveAspectRatioDecimal: effective.w / effective.h,
+    effectiveAspectRatio: simplifyRatio(effectiveW, effectiveH),
+    effectiveAspectRatioDecimal: effectiveW / effectiveH,
     frameRate: '30 fps',
     bitrate: '5000 kb/s',
     duration: '00:00:30',

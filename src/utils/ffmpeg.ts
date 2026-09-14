@@ -160,14 +160,23 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
   const videoMatch = output.match(/Stream #\d+[:.]\d+.*?: Video: (\w+).*?(\d+)x(\d+)/);
   if (videoMatch) {
     info.videoCodec = videoMatch[1];
-    info.width = parseInt(videoMatch[2]);
-    info.height = parseInt(videoMatch[3]);
-    info.resolution = `${info.width}x${info.height}`;
+    const parsedWidth = parseInt(videoMatch[2]);
+    const parsedHeight = parseInt(videoMatch[3]);
+    
+    // Validate dimensions
+    if (Number.isFinite(parsedWidth) && Number.isFinite(parsedHeight) && 
+        parsedWidth > 0 && parsedHeight > 0 && parsedWidth <= 16384 && parsedHeight <= 16384) {
+      info.width = parsedWidth;
+      info.height = parsedHeight;
+      info.resolution = `${parsedWidth}x${parsedHeight}`;
 
-    const gcdFn = (a: number, b: number): number => b === 0 ? a : gcdFn(b, a % b);
-    const g = gcdFn(info.width, info.height);
-    info.aspectRatio = `${info.width / g}:${info.height / g}`;
-    info.aspectRatioDecimal = info.width / info.height;
+      const gcdFn = (a: number, b: number): number => b === 0 ? a : gcdFn(b, a % b);
+      const g = gcdFn(parsedWidth, parsedHeight);
+      info.aspectRatio = `${parsedWidth / g}:${parsedHeight / g}`;
+      info.aspectRatioDecimal = parsedWidth / parsedHeight;
+    } else {
+      console.warn(`[warn] Invalid dimensions detected: ${parsedWidth}x${parsedHeight}`);
+    }
   }
 
   // Frame rate
@@ -209,10 +218,13 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
   info.effectiveWidth = effective.w;
   info.effectiveHeight = effective.h;
 
-  const gcdFn2 = (a: number, b: number): number => b === 0 ? a : gcdFn2(b, a % b);
-  const g2 = gcdFn2(effective.w, effective.h);
-  info.effectiveAspectRatio = `${effective.w / g2}:${effective.h / g2}`;
-  info.effectiveAspectRatioDecimal = effective.w / effective.h;
+  // Only calculate aspect ratio if dimensions are valid
+  if (effective.w != null && effective.h != null && effective.w > 0 && effective.h > 0) {
+    const gcdFn2 = (a: number, b: number): number => b === 0 ? a : gcdFn2(b, a % b);
+    const g2 = gcdFn2(effective.w, effective.h);
+    info.effectiveAspectRatio = `${effective.w / g2}:${effective.h / g2}`;
+    info.effectiveAspectRatioDecimal = effective.w / effective.h;
+  }
 
   // Audio stream
   const audioMatch = output.match(/Stream #\d+[:.]\d+.*?: Audio: (\w+).*?(\d+) Hz.*?(\d+)\s*channels/);
@@ -322,15 +334,17 @@ function buildVideoFilter(
   // Step 1: Apply video crop if enabled (factor > 1)
   if (isCropEnabled(settings.videoCrop)) {
     const cropRegion = calculateCropRegion(srcW, srcH, settings.videoCrop);
-    const cropFilter = generateCropFilter(cropRegion);
-    filters.push(cropFilter);
-    onLog(`[filter] → Video Crop: ${cropFilter}`);
-    
-    // After crop, the effective source dimensions change
-    // We need to recalculate for subsequent operations
-    const croppedW = cropRegion.width;
-    const croppedH = cropRegion.height;
-    onLog(`[filter] → Cropped dimensions: ${croppedW}x${croppedH}`);
+    if (cropRegion) {
+      const cropFilter = generateCropFilter(cropRegion);
+      filters.push(cropFilter);
+      onLog(`[filter] → Video Crop: ${cropFilter}`);
+      
+      // After crop, the effective source dimensions change
+      // We need to recalculate for subsequent operations
+      const croppedW = cropRegion.width;
+      const croppedH = cropRegion.height;
+      onLog(`[filter] → Cropped dimensions: ${croppedW}x${croppedH}`);
+    }
   }
   
   // If Original mode with Original resolution and no crop, no filter needed
@@ -344,8 +358,16 @@ function buildVideoFilter(
   let effectiveSrcH = srcH;
   if (isCropEnabled(settings.videoCrop)) {
     const cropRegion = calculateCropRegion(srcW, srcH, settings.videoCrop);
-    effectiveSrcW = cropRegion.width;
-    effectiveSrcH = cropRegion.height;
+    if (cropRegion) {
+      effectiveSrcW = cropRegion.width;
+      effectiveSrcH = cropRegion.height;
+    }
+  }
+  
+  // Validate dimensions before calculating ratio
+  if (effectiveSrcW == null || effectiveSrcH == null || effectiveSrcW <= 0 || effectiveSrcH <= 0) {
+    onLog(`[filter] → Invalid dimensions, skipping filter`);
+    return filters.join(',');
   }
   
   const srcRatio = effectiveSrcW / effectiveSrcH;

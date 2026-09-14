@@ -47,7 +47,8 @@ export default function VisualCleanup({ videoPreviewUrl, videoInfo, regions, onR
   }, [isDrawing, getCanvasCoords, startPos]);
 
   const handleMouseUp = useCallback(() => {
-    if (isDrawing && currentRect && currentRect.width > 0.02 && currentRect.height > 0.02) {
+    if (isDrawing && currentRect && currentRect.width > 0.02 && currentRect.height > 0.02 && 
+        videoInfo.width != null && videoInfo.height != null) {
       const newRegion: CleanupRegion = {
         type: activeTool,
         region: {
@@ -66,6 +67,12 @@ export default function VisualCleanup({ videoPreviewUrl, videoInfo, regions, onR
   const applyPreset = useCallback((preset: string) => {
     const w = videoInfo.width;
     const h = videoInfo.height;
+    
+    // Validate dimensions
+    if (w == null || h == null || w <= 0 || h <= 0) {
+      return;
+    }
+    
     let region: CropRegion;
 
     switch (preset) {
@@ -159,10 +166,10 @@ export default function VisualCleanup({ videoPreviewUrl, videoInfo, regions, onR
                 key={idx}
                 className="absolute border-2 border-dashed"
                 style={{
-                  left: `${(region.region.x / videoInfo.width) * 100}%`,
-                  top: `${(region.region.y / videoInfo.height) * 100}%`,
-                  width: `${(region.region.width / videoInfo.width) * 100}%`,
-                  height: `${(region.region.height / videoInfo.height) * 100}%`,
+                  left: `${videoInfo.width != null ? (region.region.x / videoInfo.width) * 100 : 0}%`,
+                  top: `${videoInfo.height != null ? (region.region.y / videoInfo.height) * 100 : 0}%`,
+                  width: `${videoInfo.width != null ? (region.region.width / videoInfo.width) * 100 : 0}%`,
+                  height: `${videoInfo.height != null ? (region.region.height / videoInfo.height) * 100 : 0}%`,
                   borderColor: region.type === 'blur' ? '#3b82f6' : region.type === 'pixelate' ? '#22c55e' : '#ef4444',
                   backgroundColor: region.type === 'blur' ? 'rgba(59,130,246,0.15)' : region.type === 'pixelate' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.3)',
                 }}
