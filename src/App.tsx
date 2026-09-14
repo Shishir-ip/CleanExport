@@ -74,10 +74,15 @@ function App() {
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
-  // Calculate output dimensions for preview
+  // Calculate output dimensions for preview - ALWAYS calculate when videoInfo exists
   const outputDimensions = useMemo(() => {
     if (!videoInfo) return null;
-    return calculateOutputDimensions(videoInfo, settings);
+    try {
+      return calculateOutputDimensions(videoInfo, settings);
+    } catch (err) {
+      console.error('Failed to calculate output dimensions:', err);
+      return null;
+    }
   }, [videoInfo, settings]);
 
   useEffect(() => {
@@ -355,8 +360,9 @@ function App() {
         )}
 
         {/* Settings Step */}
-        {step === 'settings' && videoInfo && (
-          <div className="space-y-6">
+        {step === 'settings' && videoInfo && outputDimensions && (
+          <div className="space-y-6 pb-8">
+            {/* Header */}
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Processing Settings</h2>
               <button
@@ -367,30 +373,39 @@ function App() {
               </button>
             </div>
 
-            {/* Source info banner */}
+            {/* Source Info */}
             <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
               <p className="text-sm text-blue-300">
-                <span className="text-blue-400 font-semibold">Detected source:</span>{' '}
+                <span className="text-blue-400 font-semibold">Source:</span>{' '}
                 {getSourceDescription(videoInfo)}
               </p>
             </div>
 
-            <ProcessingSettingsPanel
-              settings={settings}
-              onChange={setSettings}
-              videoInfo={videoInfo}
-            />
-
-            {/* Aspect Ratio Preview */}
-            {outputDimensions && videoPreviewUrl && (
-              <AspectPreview
-                videoPreviewUrl={videoPreviewUrl}
-                videoInfo={videoInfo}
-                outputDimensions={outputDimensions}
-                settings={settings}
-                onSettingsChange={setSettings}
-              />
+            {/* Live Preview - Always visible */}
+            {videoPreviewUrl && (
+              <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <span>👁️</span> Live Preview
+                </h3>
+                <AspectPreview
+                  videoPreviewUrl={videoPreviewUrl}
+                  videoInfo={videoInfo}
+                  outputDimensions={outputDimensions}
+                  settings={settings}
+                  onSettingsChange={setSettings}
+                />
+              </div>
             )}
+
+            {/* Output Aspect Ratio */}
+            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+              <h3 className="text-lg font-semibold mb-4">Output Aspect Ratio</h3>
+              <ProcessingSettingsPanel
+                settings={settings}
+                onChange={setSettings}
+                videoInfo={videoInfo}
+              />
+            </div>
 
             {/* Video Crop */}
             <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
@@ -401,6 +416,7 @@ function App() {
               />
             </div>
 
+            {/* Visual Cleanup */}
             <VisualCleanup
               videoPreviewUrl={videoPreviewUrl}
               videoInfo={videoInfo}
@@ -416,61 +432,60 @@ function App() {
             />
 
             {/* Output Summary */}
-            {outputDimensions && (
-              <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
-                <h3 className="text-lg font-semibold mb-3">Output Summary</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-400">Quality:</span>
-                    <span className="ml-2 capitalize">{settings.quality}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Aspect Ratio:</span>
-                    <span className="ml-2">{outputDimensions.aspectRatioLabel}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Resolution:</span>
-                    <span className="ml-2">{outputDimensions.width}×{outputDimensions.height}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Frame Rate:</span>
-                    <span className="ml-2 capitalize">{settings.frameRate === 'original' ? 'Original' : settings.frameRate + ' FPS'}</span>
-                  </div>
+            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+              <h3 className="text-lg font-semibold mb-4">Output Summary</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-400">Quality:</span>
+                  <span className="ml-2 capitalize">{settings.quality}</span>
                 </div>
-                {settings.outputAspectRatio !== 'original' && (
-                  <div className="mt-3 text-sm">
-                    <span className="text-gray-400">Conversion:</span>
-                    <span className="ml-2 capitalize">
-                      {settings.conversionMode === 'crop' ? 'Crop to Fill' : settings.conversionMode === 'fit' ? 'Fit with Background' : 'Stretch'}
-                    </span>
-                    {settings.conversionMode === 'crop' && (
-                      <span className="ml-2 text-gray-500">({settings.cropPosition})</span>
-                    )}
-                  </div>
-                )}
-                {cleanupRegions.length > 0 && (
-                  <p className="text-sm text-yellow-400 mt-2">
-                    ⚠️ {cleanupRegions.length} visual cleanup region{cleanupRegions.length > 1 ? 's' : ''} applied
-                  </p>
-                )}
-                {metadataSettings.preset !== 'keep-original' && (
-                  <p className="text-sm text-purple-400 mt-2">
-                    🏷️ Metadata: {metadataSettings.preset === 'privacy-clean' ? 'Privacy Clean' : metadataSettings.preset === 'remove-all' ? 'Remove All' : 'Custom'}
-                  </p>
-                )}
-                {settings.videoCrop.factor > 1 && (
-                  <p className="text-sm text-cyan-400 mt-2">
-                    ✂️ Crop: {getCropSummary(settings.videoCrop)}
-                  </p>
-                )}
-                <div className="mt-4 pt-3 border-t border-gray-800">
-                  <p className="text-xs text-gray-500">
-                    Output: <span className="text-gray-300 font-mono">{getOutputDescription(outputDimensions)}</span>
-                  </p>
+                <div>
+                  <span className="text-gray-400">Aspect Ratio:</span>
+                  <span className="ml-2">{outputDimensions.aspectRatioLabel}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Resolution:</span>
+                  <span className="ml-2">{outputDimensions.width}×{outputDimensions.height}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Frame Rate:</span>
+                  <span className="ml-2 capitalize">{settings.frameRate === 'original' ? 'Original' : settings.frameRate + ' FPS'}</span>
                 </div>
               </div>
-            )}
+              {settings.outputAspectRatio !== 'original' && (
+                <div className="mt-3 text-sm">
+                  <span className="text-gray-400">Conversion:</span>
+                  <span className="ml-2 capitalize">
+                    {settings.conversionMode === 'crop' ? 'Crop to Fill' : settings.conversionMode === 'fit' ? 'Fit with Background' : 'Stretch'}
+                  </span>
+                  {settings.conversionMode === 'crop' && (
+                    <span className="ml-2 text-gray-500">({settings.cropPosition})</span>
+                  )}
+                </div>
+              )}
+              {cleanupRegions.length > 0 && (
+                <p className="text-sm text-yellow-400 mt-2">
+                  ⚠️ {cleanupRegions.length} visual cleanup region{cleanupRegions.length > 1 ? 's' : ''} applied
+                </p>
+              )}
+              {metadataSettings.preset !== 'keep-original' && (
+                <p className="text-sm text-purple-400 mt-2">
+                  🏷️ Metadata: {metadataSettings.preset === 'privacy-clean' ? 'Privacy Clean' : metadataSettings.preset === 'remove-all' ? 'Remove All' : 'Custom'}
+                </p>
+              )}
+              {settings.videoCrop.factor > 1 && (
+                <p className="text-sm text-cyan-400 mt-2">
+                  ✂️ Crop: {getCropSummary(settings.videoCrop)}
+                </p>
+              )}
+              <div className="mt-4 pt-3 border-t border-gray-800">
+                <p className="text-xs text-gray-500">
+                  Output: <span className="text-gray-300 font-mono">{getOutputDescription(outputDimensions)}</span>
+                </p>
+              </div>
+            </div>
 
+            {/* Action Buttons */}
             <div className="flex gap-4 justify-center pt-4">
               <button
                 onClick={() => setStep('analyze')}
