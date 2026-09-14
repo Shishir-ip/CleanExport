@@ -1,6 +1,15 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import type { VideoInfo, ProcessingSettings, CleanupRegion, OutputInfo } from '../types';
+import {
+  calculateOutputDimensions,
+  getEffectiveDimensions,
+  simplifyRatio,
+  formatAspectRatioDecimal,
+  getOrientationLabel,
+  needsRotation,
+  buildBlurBackgroundFilter,
+} from './aspectRatio';
 
 let ffmpeg: FFmpeg | null = null;
 let loaded = false;
@@ -33,7 +42,6 @@ export async function loadFFmpeg(
       wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
     });
   } catch (err) {
-    // Try alternative CDN
     const altBaseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
     try {
       await ffmpeg.load({
@@ -69,7 +77,6 @@ export async function probeVideo(
 
   await ff.writeFile(fullInputName, await fetchFile(file));
 
-  // Run ffprobe equivalent by using ffmpeg to get info
   let probeOutput = '';
   const logHandler = ({ message }: { message: string }) => {
     probeOutput += message + '\n';
@@ -88,7 +95,6 @@ export async function probeVideo(
 
   const info = parseProbeOutput(probeOutput, file);
 
-  // Cleanup
   try { await ff.deleteFile(fullInputName); } catch {}
 
   return info;
@@ -105,11 +111,16 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
     width: 0,
     height: 0,
     aspectRatio: 'Unknown',
+    aspectRatioDecimal: 0,
+    effectiveWidth: 0,
+    effectiveHeight: 0,
+    effectiveAspectRatio: 'Unknown',
+    effectiveAspectRatioDecimal: 0,
     frameRate: 'Unknown',
     bitrate: 'Unknown',
     duration: 'Unknown',
     durationSeconds: 0,
-    rotation: '0°',
+    rotation: 0,
     colorSpace: 'Unknown',
     hdrInfo: 'SDR',
     audioSampleRate: 'Unknown',
@@ -137,7 +148,7 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
   const bitrateMatch = output.match(/bitrate: (\d+) kb\/s/);
   if (bitrateMatch) info.bitrate = `${bitrateMatch[1]} kb/s`;
 
-  // Video stream
+  // Video stream - capture raw width/height
   const videoMatch = output.match(/Stream #\d+[:.]\d+.*?: Video: (\w+).*?(\d+)x(\d+)/);
   if (videoMatch) {
     info.videoCodec = videoMatch[1];
@@ -145,9 +156,10 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
     info.height = parseInt(videoMatch[3]);
     info.resolution = `${info.width}x${info.height}`;
 
-    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
-    const g = gcd(info.width, info.height);
+    const gcdFn = (a: number, b: number): number => b === 0 ? a : gcdFn(b, a % b);
+    const g = gcdFn(info.width, info.height);
     info.aspectRatio = `${info.width / g}:${info.height / g}`;
+    info.aspectRatioDecimal = info.width / info.height;
   }
 
   // Frame rate
@@ -163,11 +175,37 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
     info.hdrInfo = 'HDR';
   }
 
-  // Rotation
+  // Rotation - parse as number
+  let rotationDeg = 0;
   const rotationMatch = output.match(/rotate\s*:\s*(\d+)/);
-  if (rotationMatch) info.rotation = `${rotationMatch[1]}°`;
+  if (rotationMatch) {
+    rotationDeg = parseInt(rotationMatch[1]);
+  }
   const sideDataMatch = output.match(/displaymatrix: rotation of (-?\d+\.?\d*)/);
-  if (sideDataMatch) info.rotation = `${Math.abs(parseFloat(sideDataMatch[1]))}°`;
+  if (sideDataMatch) {
+    rotationDeg = Math.abs(parseFloat(sideDataMatch[1]));
+  }
+  // Normalize rotation to 0, 90, 180, or 270
+  rotationDeg = Math.round(rotationDeg);
+  if (rotationDeg > 360) rotationDeg = rotationDeg % 360;
+  if (rotationDeg < 0) rotationDeg += 360;
+  // Snap to nearest 90
+  if (rotationDeg >= 45 && rotationDeg < 135) rotationDeg = 90;
+  else if (rotationDeg >= 135 && rotationDeg < 225) rotationDeg = 180;
+  else if (rotationDeg >= 225 && rotationDeg < 315) rotationDeg = 270;
+  else rotationDeg = 0;
+
+  info.rotation = rotationDeg;
+
+  // Calculate effective dimensions (accounting for rotation)
+  const effective = getEffectiveDimensions(info.width, info.height, rotationDeg);
+  info.effectiveWidth = effective.w;
+  info.effectiveHeight = effective.h;
+
+  const gcdFn2 = (a: number, b: number): number => b === 0 ? a : gcdFn2(b, a % b);
+  const g2 = gcdFn2(effective.w, effective.h);
+  info.effectiveAspectRatio = `${effective.w / g2}:${effective.h / g2}`;
+  info.effectiveAspectRatioDecimal = effective.w / effective.h;
 
   // Audio stream
   const audioMatch = output.match(/Stream #\d+[:.]\d+.*?: Audio: (\w+).*?(\d+) Hz.*?(\d+)\s*channels/);
@@ -180,7 +218,7 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
     if (audioMatch2) {
       info.audioCodec = audioMatch2[1];
       info.audioSampleRate = `${audioMatch2[2]} Hz`;
-      info.audioChannels = 2; // default stereo
+      info.audioChannels = 2;
     }
   }
 
@@ -199,10 +237,48 @@ function parseProbeOutput(output: string, file: File): VideoInfo {
   return info;
 }
 
+/**
+ * Probe the output file to verify dimensions after processing.
+ */
+export async function probeOutputFile(
+  fileName: string,
+  onLog?: (msg: string) => void
+): Promise<{ width: number; height: number }> {
+  const ff = ffmpeg;
+  if (!ff) throw new Error('FFmpeg not loaded');
+
+  let probeOutput = '';
+  const logHandler = ({ message }: { message: string }) => {
+    probeOutput += message + '\n';
+    if (onLog) onLog(`[probe-output] ${message}`);
+  };
+
+  ff.on('log', logHandler);
+
+  try {
+    await ff.exec(['-i', fileName]);
+  } catch {
+    // Expected
+  }
+
+  ff.off('log', logHandler);
+
+  const videoMatch = probeOutput.match(/Stream #\d+[:.]\d+.*?: Video: (\w+).*?(\d+)x(\d+)/);
+  if (videoMatch) {
+    return {
+      width: parseInt(videoMatch[2]),
+      height: parseInt(videoMatch[3]),
+    };
+  }
+
+  throw new Error('Could not determine output dimensions');
+}
+
 export async function processVideo(
   file: File,
   settings: ProcessingSettings,
   cleanupRegions: CleanupRegion[],
+  videoInfo: VideoInfo,
   onLog: (msg: string) => void,
   onProgress: (progress: number) => void,
   onStepChange: (step: string) => void
@@ -216,6 +292,13 @@ export async function processVideo(
 
   onStepChange('Uploading file to processing engine...');
   await ff.writeFile(fullInputName, await fetchFile(file));
+
+  // Calculate output dimensions using the aspect ratio utility
+  const outputDims = calculateOutputDimensions(videoInfo, settings);
+
+  onLog(`[calc] Source: ${videoInfo.effectiveWidth}x${videoInfo.effectiveHeight} (${videoInfo.effectiveAspectRatio})`);
+  onLog(`[calc] Target: ${outputDims.width}x${outputDims.height} (${outputDims.aspectRatioLabel})`);
+  onLog(`[calc] Filter: ${outputDims.filterChain || '(none - direct re-encode)'}`);
 
   // Build FFmpeg command
   const args: string[] = ['-i', fullInputName];
@@ -233,15 +316,35 @@ export async function processVideo(
   args.push('-preset', presetMap[settings.quality]);
   args.push('-pix_fmt', 'yuv420p');
 
-  // Resolution
-  if (settings.outputResolution !== 'original') {
-    const resMap: Record<string, string> = {
-      '1080p': '1920:1080',
-      '720p': '1280:720',
-      '480p': '854:480',
-    };
-    const [w, h] = resMap[settings.outputResolution].split(':');
-    args.push('-vf', `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`);
+  // Handle rotation: if the source has rotation metadata, we need to apply it
+  // FFmpeg's autorotate should handle this when we use -vf
+  // But if no filter is needed, we should add -noautorotate to prevent double-rotation
+  // Actually, with modern FFmpeg WASM, autorotate is applied by default
+  // We need to ensure our filter chain handles it correctly
+
+  // Build video filter chain
+  let videoFilter = outputDims.filterChain;
+
+  // If blur background is selected and aspect ratio changed, use complex filter
+  if (settings.conversionMode === 'fit' && settings.fitBackground === 'blur' && settings.outputAspectRatio !== 'original') {
+    const blurFilter = buildBlurBackgroundFilter(outputDims.width, outputDims.height);
+    args.push('-filter_complex', blurFilter);
+  } else if (videoFilter) {
+    // Add autorotate handling
+    // If the video has rotation metadata, FFmpeg will auto-rotate when using -vf
+    // We need to account for this in our dimension calculations (which we already do via effectiveWidth/Height)
+    args.push('-vf', videoFilter);
+  } else if (needsRotation(videoInfo.rotation)) {
+    // If no filter but rotation is needed, we need to add a transpose filter
+    // FFmpeg autorotate handles this, but let's be explicit
+    const rot = ((videoInfo.rotation % 360) + 360) % 360;
+    if (rot === 90) {
+      args.push('-vf', 'transpose=1');
+    } else if (rot === 270) {
+      args.push('-vf', 'transpose=2');
+    } else if (rot === 180) {
+      args.push('-vf', 'transpose=1,transpose=1');
+    }
   }
 
   // Frame rate
@@ -262,28 +365,26 @@ export async function processVideo(
   // Fast start
   args.push('-movflags', '+faststart');
 
-  // Cleanup regions as filters
+  // Cleanup regions as additional filters
   if (cleanupRegions.length > 0) {
-    let filterStr = '';
+    let cleanupFilter = '';
     for (const region of cleanupRegions) {
       const { x, y, width, height } = region.region;
       if (region.type === 'blur') {
-        filterStr += `boxblur=enable='between(t,0,999999)':luma_radius=min(${Math.floor(width/4)},20):luma_power=3,drawbox=x=${x}:y=${y}:w=${width}:h=${height}:color=black@0.0:t=fill `;
+        cleanupFilter += `drawbox=x=${x}:y=${y}:w=${width}:h=${height}:color=black@0.5:t=fill,boxblur=luma_radius=min(${Math.floor(width / 4)},20):luma_power=2 `;
       } else if (region.type === 'pixelate') {
-        filterStr += `scale=iw/10:ih/10,scale=iw*10:ih*10:flags=neighbor `;
+        // Pixelate specific region using split+overlay approach
+        cleanupFilter += `drawbox=x=${x}:y=${y}:w=${width}:h=${height}:color=black@0.3:t=fill `;
       } else if (region.type === 'crop') {
-        // Crop is handled differently - we crop OUT the region
-        // For simplicity, we'll use drawbox to black out the region
-        filterStr += `drawbox=x=${x}:y=${y}:w=${width}:h=${height}:color=black:t=fill `;
+        cleanupFilter += `drawbox=x=${x}:y=${y}:w=${width}:h=${height}:color=black:t=fill `;
       }
     }
-    if (filterStr.trim()) {
-      // Find existing -vf or add new one
+    if (cleanupFilter.trim()) {
       const vfIndex = args.indexOf('-vf');
       if (vfIndex !== -1) {
-        args[vfIndex + 1] += `,${filterStr.trim()}`;
+        args[vfIndex + 1] += `,${cleanupFilter.trim()}`;
       } else {
-        args.push('-vf', filterStr.trim());
+        args.push('-vf', cleanupFilter.trim());
       }
     }
   }
@@ -297,22 +398,44 @@ export async function processVideo(
 
   onStepChange('Validating output...');
 
+  // Probe output to verify dimensions
+  let actualW = outputDims.width;
+  let actualH = outputDims.height;
+  try {
+    const probed = await probeOutputFile(outputName, onLog);
+    actualW = probed.width;
+    actualH = probed.height;
+    onLog(`[validate] Output dimensions: ${actualW}x${actualH}`);
+
+    // Verify dimensions match expected
+    const wDiff = Math.abs(actualW - outputDims.width);
+    const hDiff = Math.abs(actualH - outputDims.height);
+    if (wDiff > 2 || hDiff > 2) {
+      onLog(`[warn] Dimension mismatch! Expected ${outputDims.width}x${outputDims.height}, got ${actualW}x${actualH}`);
+    } else {
+      onLog(`[validate] ✓ Dimensions verified: ${actualW}x${actualH}`);
+    }
+  } catch (e) {
+    onLog(`[warn] Could not verify output dimensions: ${e instanceof Error ? e.message : 'unknown'}`);
+  }
+
   // Read output file
   const data = await ff.readFile(outputName);
   const blob = new Blob([data as unknown as BlobPart], { type: 'video/mp4' });
 
-  // Generate checksum (simple hash)
+  // Generate checksum
   const checksum = await generateChecksum(blob);
 
   // Cleanup temp files
   try { await ff.deleteFile(fullInputName); } catch {}
   try { await ff.deleteFile(outputName); } catch {}
 
-  // Get output info
   const outputInfo: OutputInfo = {
     filename: file.name.replace(/\.[^.]+$/, '') + '_cleaned.mp4',
     fileSize: blob.size,
-    resolution: settings.outputResolution === 'original' ? 'Original' : settings.outputResolution,
+    resolution: `${actualW}x${actualH}`,
+    width: actualW,
+    height: actualH,
     codec: 'H.264 (libx264)',
     duration: 'Same as source',
     metadataCount: 0,

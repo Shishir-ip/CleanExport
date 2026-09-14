@@ -39,7 +39,7 @@ export default function DownloadPanel({ output, onReset }: DownloadPanelProps) {
           </div>
           <div className="flex justify-between">
             <span className="text-gray-500">Resolution</span>
-            <span className="text-gray-200">{output.resolution}</span>
+            <span className="text-gray-200">{output.width}×{output.height}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-500">Codec</span>

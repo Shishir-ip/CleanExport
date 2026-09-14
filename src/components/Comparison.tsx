@@ -51,7 +51,7 @@ export default function Comparison({ original, output, outputPreviewUrl }: Compa
             Exported
           </h4>
           <div className="space-y-3 text-sm">
-            <CompRow label="Resolution" value={output.resolution} />
+            <CompRow label="Resolution" value={`${output.width}×${output.height}`} />
             <CompRow label="Codec" value={output.codec} />
             <CompRow label="FPS" value="Same as source" />
             <CompRow label="Duration" value={output.duration} />

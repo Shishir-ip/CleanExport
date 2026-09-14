@@ -9,6 +9,9 @@ CleanExport is a browser-based video processing tool that removes metadata, re-e
 - 🎬 **Video Upload & Analysis** — Drag-and-drop upload with detailed technical inspection
 - 🧹 **Metadata Cleanup** — Removes ordinary embedded metadata (title, artist, GPS, timestamps, etc.)
 - 🔄 **Re-encoding Engine** — Decodes and re-encodes using H.264/AAC (not a simple copy)
+- 📐 **Aspect Ratio Control** — Preserve original or convert to 9:16, 16:9, 1:1, 4:5, 3:4, 4:3, 3:2, 21:9, or custom
+- 🎯 **Smart Conversion** — Crop to Fill, Fit with Background, or Stretch modes with live preview
+- ✂️ **Crop Positioning** — Choose which part of the video to keep (center, top, bottom, left, right) with fine-tune offsets
 - 🎨 **Visual Cleanup** — Manual region blur, pixelation, or masking for your own footage
 - ⚙️ **Customizable Settings** — Quality, resolution, frame rate, and audio options
 - 🔒 **Privacy-First** — All processing happens locally in your browser

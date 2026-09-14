@@ -8,11 +8,16 @@ export interface VideoInfo {
   width: number;
   height: number;
   aspectRatio: string;
+  aspectRatioDecimal: number;
+  effectiveWidth: number;
+  effectiveHeight: number;
+  effectiveAspectRatio: string;
+  effectiveAspectRatioDecimal: number;
   frameRate: string;
   bitrate: string;
   duration: string;
   durationSeconds: number;
-  rotation: string;
+  rotation: number;
   colorSpace: string;
   hdrInfo: string;
   audioSampleRate: string;
@@ -21,9 +26,40 @@ export interface VideoInfo {
   metadataCount: number;
 }
 
+export type OutputAspectRatio =
+  | 'original'
+  | '9:16'
+  | '16:9'
+  | '1:1'
+  | '4:5'
+  | '3:4'
+  | '4:3'
+  | '3:2'
+  | '21:9'
+  | 'custom';
+
+export type ConversionMode = 'crop' | 'fit' | 'stretch';
+
+export type FitBackground = 'black' | 'white' | 'blur' | 'custom';
+
+export type CropPosition = 'center' | 'top' | 'bottom' | 'left' | 'right';
+
+export interface CustomAspectRatio {
+  width: number;
+  height: number;
+}
+
 export interface ProcessingSettings {
   quality: 'high' | 'balanced' | 'smaller';
   outputResolution: 'original' | '1080p' | '720p' | '480p';
+  outputAspectRatio: OutputAspectRatio;
+  customAspectRatio?: CustomAspectRatio;
+  conversionMode: ConversionMode;
+  fitBackground: FitBackground;
+  fitBackgroundColor?: string;
+  cropPosition: CropPosition;
+  cropOffsetX: number; // -1 to 1, 0 = center
+  cropOffsetY: number; // -1 to 1, 0 = center
   frameRate: 'original' | '60' | '30' | '24';
   audio: 'original' | 'aac192' | 'aac256';
 }
@@ -54,6 +90,8 @@ export interface OutputInfo {
   filename: string;
   fileSize: number;
   resolution: string;
+  width: number;
+  height: number;
   codec: string;
   duration: string;
   metadataCount: number;
@@ -62,3 +100,11 @@ export interface OutputInfo {
 }
 
 export type AppStep = 'upload' | 'analyze' | 'settings' | 'processing' | 'complete';
+
+export interface OutputDimensions {
+  width: number;
+  height: number;
+  aspectRatioDecimal: number;
+  aspectRatioLabel: string;
+  filterChain: string;
+}
