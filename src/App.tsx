@@ -403,7 +403,7 @@ function App() {
         {/* Complete Step */}
         {step === 'complete' && outputInfo && videoInfo && (
           <div className="space-y-6">
-            <DownloadPanel output={outputInfo} onReset={handleReset} />
+            <DownloadPanel output={outputInfo} outputPreviewUrl={outputPreviewUrl} onReset={handleReset} />
             <Comparison original={videoInfo} output={outputInfo} outputPreviewUrl={outputPreviewUrl} />
             <Disclaimer />
           </div>
